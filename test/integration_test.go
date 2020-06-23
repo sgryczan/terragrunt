@@ -1184,6 +1184,8 @@ func TestAutoRetryCustomRetryableErrors(t *testing.T) {
 	assert.Contains(t, out.String(), "Apply complete!")
 }
 
+//TODO: Add a test to test a failure case when retryable_errors are not set in terragrunt.hcl
+
 func TestAutoRetryFlagWithRecoverableError(t *testing.T) {
 	t.Parallel()
 
