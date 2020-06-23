@@ -1179,9 +1179,9 @@ func TestAutoRetryCustomRetryableErrors(t *testing.T) {
 	modulePath := util.JoinPath(rootPath, TEST_FIXTURE_AUTO_RETRY_CUSTOM_ERRORS)
 	err := runTerragruntCommand(t, fmt.Sprintf("terragrunt apply --auto-approve --terragrunt-non-interactive --terragrunt-working-dir %s", modulePath), out, os.Stderr)
 
-	assert.NotNil(t, err)
+	assert.Nil(t, err)
 	assert.Contains(t, out.String(), "My own little error")
-	assert.NotContains(t, out.String(), "Apply complete!")
+	assert.Contains(t, out.String(), "Apply complete!")
 }
 
 func TestAutoRetryFlagWithRecoverableError(t *testing.T) {
