@@ -158,6 +158,57 @@ func TestParseTerragruntJsonConfigRemoteStateFullConfig(t *testing.T) {
 	}
 }
 
+func TestParseTerragruntHclConfigRetryableErrors(t *testing.T) {
+	t.Parallel()
+
+	config := `
+retryable_errors = [
+    "My own little error",
+    "Another one of my errors"
+]
+`
+	terragruntConfig, err := ParseConfigString(config, mockOptionsForTest(t), nil, DefaultTerragruntConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assert.Nil(t, terragruntConfig.Terraform)
+	assert.Empty(t, terragruntConfig.IamRole)
+
+	if assert.NotNil(t, terragruntConfig.RetryableErrors) {
+		assert.NotEmpty(t, terragruntConfig.RetryableErrors)
+		assert.Equal(t, "My own little error", terragruntConfig.RetryableErrors[0])
+		assert.Equal(t, "Another one of my errors", terragruntConfig.RetryableErrors[1])
+	}
+}
+
+func TestParseTerragruntJsonConfigRetryableErrors(t *testing.T) {
+	t.Parallel()
+
+	config := `
+{
+	"retryable_errors": [
+        "My own little error",
+        "Another one of my errors"
+	]
+}
+`
+
+	terragruntConfig, err := ParseConfigString(config, mockOptionsForTest(t), nil, DefaultTerragruntJsonConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assert.Nil(t, terragruntConfig.Terraform)
+	assert.Empty(t, terragruntConfig.IamRole)
+
+	if assert.NotNil(t, terragruntConfig.RetryableErrors) {
+		assert.NotEmpty(t, terragruntConfig.RetryableErrors)
+		assert.Equal(t, "My own little error", terragruntConfig.RetryableErrors[0])
+		assert.Equal(t, "Another one of my errors", terragruntConfig.RetryableErrors[1])
+	}
+}
+
 func TestParseIamRole(t *testing.T) {
 	t.Parallel()
 
