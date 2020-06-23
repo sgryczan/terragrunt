@@ -172,7 +172,7 @@ func NewTerragruntOptions(terragruntConfigPath string) (*TerragruntOptions, erro
 		AutoRetry:                   true,
 		MaxRetryAttempts:            DEFAULT_MAX_RETRY_ATTEMPTS,
 		Sleep:                       DEFAULT_SLEEP,
-		RetryableErrors:             util.CloneStringList(RETRYABLE_ERRORS),
+		RetryableErrors:             util.CloneStringList(DEFAULT_RETRYABLE_ERRORS),
 		ExcludeDirs:                 []string{},
 		IncludeDirs:                 []string{},
 		StrictInclude:               false,
