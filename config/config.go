@@ -66,7 +66,7 @@ type terragruntConfigFile struct {
 	IamRole                     *string                   `hcl:"iam_role,attr"`
 	TerragruntDependencies      []Dependency              `hcl:"dependency,block"`
 	GenerateBlocks              []terragruntGenerateBlock `hcl:"generate,block"`
-	RetryableErrors             []string                  `hcl:"retryable_errors,attr"`
+	RetryableErrors             []string                  `hcl:"retryable_errors,optional"`
 
 	// This struct is used for validating and parsing the entire terragrunt config. Since locals are evaluated in a
 	// completely separate cycle, it should not be evaluated here. Otherwise, we can't support self referencing other
