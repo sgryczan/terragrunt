@@ -27,3 +27,5 @@ require (
 	golang.org/x/sys v0.0.0-20200223170610-d5e6a3e2c0ae
 	google.golang.org/api v0.20.0
 )
+
+replace github.com/gruntwork-io/terragrunt => ./
