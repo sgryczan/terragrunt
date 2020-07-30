@@ -19,4 +19,5 @@ var RETRYABLE_ERRORS = []string{
 	"(?s).*Error creating SSM parameter: TooManyUpdates:.*",
 	".*etcdserver: leader changed.*",
 	".*etcdserver: request timed out.*",
+	`.*failed calling webhook "webhook.cert-manager.io".*`,
 }
