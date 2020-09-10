@@ -138,6 +138,14 @@ type TerragruntOptions struct {
 	// packages can use the command without a direct reference back to the cli package (which would create a
 	// circular dependency).
 	RunTerragrunt func(*TerragruntOptions) error
+
+	// True if terragrunt should run in debug mode, writing terragrunt-debug.tfvars to working folder to help
+	// root-cause issues.
+	Debug bool
+
+	// Attributes to override in AWS provider nested within modules as part of the aws-provider-patch command. See that
+	// command for more info.
+	AwsProviderPatchOverrides map[string]string
 }
 
 // Create a new TerragruntOptions object with reasonable defaults for real usage
@@ -193,7 +201,7 @@ func DefaultWorkingAndDownloadDirs(terragruntConfigPath string) (string, string,
 		return "", "", errors.WithStackTrace(err)
 	}
 
-	return workingDir, downloadDir, nil
+	return filepath.ToSlash(workingDir), filepath.ToSlash(downloadDir), nil
 }
 
 // Create a new TerragruntOptions object with reasonable defaults for test usage
@@ -251,6 +259,7 @@ func (terragruntOptions *TerragruntOptions) Clone(terragruntConfigPath string) *
 		Parallelism:                 terragruntOptions.Parallelism,
 		StrictInclude:               terragruntOptions.StrictInclude,
 		RunTerragrunt:               terragruntOptions.RunTerragrunt,
+		AwsProviderPatchOverrides:   terragruntOptions.AwsProviderPatchOverrides,
 	}
 }
 

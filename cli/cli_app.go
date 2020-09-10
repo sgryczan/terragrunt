@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
 	"github.com/gruntwork-io/terragrunt/aws_helper"
 	"github.com/gruntwork-io/terragrunt/codegen"
 	"github.com/gruntwork-io/terragrunt/config"
@@ -42,6 +41,8 @@ const OPT_TERRAGRUNT_STRICT_INCLUDE = "terragrunt-strict-include"
 const OPT_TERRAGRUNT_PARALLELISM = "terragrunt-parallelism"
 const OPT_TERRAGRUNT_CHECK = "terragrunt-check"
 const OPT_TERRAGRUNT_HCLFMT_FILE = "terragrunt-hclfmt-file"
+const OPT_TERRAGRUNT_DEBUG = "terragrunt-debug"
+const OPT_TERRAGRUNT_OVERRIDE_ATTR = "terragrunt-override-attr"
 
 var ALL_TERRAGRUNT_BOOLEAN_OPTS = []string{
 	OPT_NON_INTERACTIVE,
@@ -54,6 +55,7 @@ var ALL_TERRAGRUNT_BOOLEAN_OPTS = []string{
 	OPT_TERRAGRUNT_NO_AUTO_RETRY,
 	OPT_TERRAGRUNT_CHECK,
 	OPT_TERRAGRUNT_STRICT_INCLUDE,
+	OPT_TERRAGRUNT_DEBUG,
 }
 var ALL_TERRAGRUNT_STRING_OPTS = []string{
 	OPT_TERRAGRUNT_CONFIG,
@@ -66,6 +68,7 @@ var ALL_TERRAGRUNT_STRING_OPTS = []string{
 	OPT_TERRAGRUNT_INCLUDE_DIR,
 	OPT_TERRAGRUNT_PARALLELISM,
 	OPT_TERRAGRUNT_HCLFMT_FILE,
+	OPT_TERRAGRUNT_OVERRIDE_ATTR,
 }
 
 const CMD_PLAN_ALL = "plan-all"
@@ -80,6 +83,7 @@ const CMD_TERRAGRUNT_INFO = "terragrunt-info"
 const CMD_TERRAGRUNT_GRAPH_DEPENDENCIES = "graph-dependencies"
 const CMD_TERRAGRUNT_READ_CONFIG = "terragrunt-read-config"
 const CMD_HCLFMT = "hclfmt"
+const CMD_AWS_PROVIDER_PATCH = "aws-provider-patch"
 
 // CMD_SPIN_UP is deprecated.
 const CMD_SPIN_UP = "spin-up"
@@ -152,6 +156,7 @@ COMMANDS:
    terragrunt-info      Emits limited terragrunt state on stdout and exits
    graph-dependencies   Prints the terragrunt dependency graph to stdout
    hclfmt               Recursively find terragrunt.hcl files and rewrite them into a canonical format.
+   aws-provider-patch   Overwrite settings on nested AWS providers to work around a Terraform bug (issue #13018)
    *                    Terragrunt forwards all other commands directly to Terraform
 
 GLOBAL OPTIONS:
@@ -174,6 +179,8 @@ GLOBAL OPTIONS:
    terragrunt-include-dir                       Unix-style glob of directories to include when running *-all commands
    terragrunt-check                             Enable check mode in the hclfmt command.
    terragrunt-hclfmt-file                       The path to a single terragrunt.hcl file that the hclfmt command should run on.
+   terragrunt-override-attr                     A key=value attribute to override in a provider block as part of the aws-provider-patch command. May be specified multiple times.
+   terragrunt-debug                             Write terragrunt-debug.tfvars to working folder to help root-cause issues.
 
 VERSION:
    {{.Version}}{{if len .Authors}}
@@ -303,7 +310,7 @@ func RunTerragrunt(terragruntOptions *options.TerragruntOptions) error {
 		terragruntOptions.IamRole = terragruntConfig.IamRole
 	}
 
-	if err := assumeRoleIfNecessary(terragruntOptions); err != nil {
+	if err := aws_helper.AssumeRoleAndUpdateEnvIfNecessary(terragruntOptions); err != nil {
 		return err
 	}
 
@@ -324,6 +331,8 @@ func RunTerragrunt(terragruntOptions *options.TerragruntOptions) error {
 			return err
 		}
 	}
+
+	// NOTE: At this point, the terraform source is downloaded to the terragrunt working directory
 
 	if shouldPrintTerragruntInfo(terragruntOptions) {
 		group := TerragruntInfoGroup{
@@ -362,6 +371,15 @@ func RunTerragrunt(terragruntOptions *options.TerragruntOptions) error {
 
 	if terragruntConfig.RemoteState != nil {
 		if err := checkTerraformCodeDefinesBackend(terragruntOptions, terragruntConfig.RemoteState.Backend); err != nil {
+			return err
+		}
+	}
+
+	// We do the debug file generation here, after all the terragrunt generated terraform files are created so that we
+	// can ensure the tfvars json file only includes the vars that are defined in the module.
+	if terragruntOptions.Debug {
+		err := writeTerragruntDebugFile(terragruntOptions, terragruntConfig)
+		if err != nil {
 			return err
 		}
 	}
@@ -443,6 +461,10 @@ func shouldRunHCLFmt(terragruntOptions *options.TerragruntOptions) bool {
 	return util.ListContainsElement(terragruntOptions.TerraformCliArgs, CMD_HCLFMT)
 }
 
+func shouldApplyAwsProviderPatch(terragruntOptions *options.TerragruntOptions) bool {
+	return util.ListContainsElement(terragruntOptions.TerraformCliArgs, CMD_AWS_PROVIDER_PATCH)
+}
+
 func processHooks(hooks []config.Hook, terragruntOptions *options.TerragruntOptions, previousExecError ...error) error {
 	if len(hooks) == 0 {
 		return nil
@@ -485,27 +507,6 @@ func shouldRunHook(hook config.Hook, terragruntOptions *options.TerragruntOption
 	return util.ListContainsElement(hook.Commands, terragruntOptions.TerraformCommand) && (multiError == nil || (hook.RunOnError != nil && *hook.RunOnError))
 }
 
-// Assume an IAM role, if one is specified, by making API calls to Amazon STS and setting the environment variables
-// we get back inside of terragruntOptions.Env
-func assumeRoleIfNecessary(terragruntOptions *options.TerragruntOptions) error {
-	if terragruntOptions.IamRole == "" {
-		return nil
-	}
-
-	terragruntOptions.Logger.Printf("Assuming IAM role %s", terragruntOptions.IamRole)
-	creds, err := aws_helper.AssumeIamRole(terragruntOptions.IamRole)
-	if err != nil {
-		return err
-	}
-
-	terragruntOptions.Env["AWS_ACCESS_KEY_ID"] = aws.StringValue(creds.AccessKeyId)
-	terragruntOptions.Env["AWS_SECRET_ACCESS_KEY"] = aws.StringValue(creds.SecretAccessKey)
-	terragruntOptions.Env["AWS_SESSION_TOKEN"] = aws.StringValue(creds.SessionToken)
-	terragruntOptions.Env["AWS_SECURITY_TOKEN"] = aws.StringValue(creds.SessionToken)
-
-	return nil
-}
-
 // Runs terraform with the given options and CLI args.
 // This will forward all the args and extra_arguments directly to Terraform.
 func runTerragruntWithConfig(terragruntOptions *options.TerragruntOptions, terragruntConfig *config.TerragruntConfig, allowSourceDownload bool) error {
@@ -530,6 +531,11 @@ func runTerragruntWithConfig(terragruntOptions *options.TerragruntOptions, terra
 		if err := prepareNonInitCommand(terragruntOptions, terragruntConfig); err != nil {
 			return err
 		}
+	}
+
+	// Now that we've run 'init' and have all the source code locally, we can finally run the patch command
+	if shouldApplyAwsProviderPatch(terragruntOptions) {
+		return applyAwsProviderPatch(terragruntOptions)
 	}
 
 	if err := checkProtectedModule(terragruntOptions, terragruntConfig); err != nil {
@@ -576,7 +582,6 @@ func setTerragruntInputsAsEnvVars(terragruntOptions *options.TerragruntOptions, 
 			terragruntOptions.Env[key] = value
 		}
 	}
-
 	return nil
 }
 

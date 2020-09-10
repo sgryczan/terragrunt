@@ -184,6 +184,9 @@ The `remote_state` block supports the following arguments:
   have support in Terragrunt to be automatically created if the storage does not exist. Currently `s3` and `gcs` are the
   two backends with support for automatic creation. Defaults to `false`.
 
+- `disable_dependency_optimization` (attribute): When `true`, disable optimized dependency fetching for terragrunt
+  modules using this `remote_state` block. See the documentation for [dependency block](#dependency) for more details.
+
 - `generate` (attribute): Configure Terragrunt to automatically generate a `.tf` file that configures the remote state
   backend. This is a map that expects two properties:
     - `path`: The path where the generated file should be written. If a relative path, it'll be relative to the Terragrunt
@@ -427,6 +430,38 @@ inputs = {
   db_url = dependency.rds.outputs.db_url
 }
 ```
+
+**Can I speed up dependency fetching?**
+
+`dependency` blocks are fetched in parallel at each source level, but will serially parse each recursive dependency. For
+example, consider the following chain of dependencies:
+
+```
+account --> vpc --> securitygroup --> ecs
+                                      ^
+                                     /
+                              ecr --
+```
+
+In this chain, the `ecr` and `securitygroup` module outputs will be fetched concurrently when applying the `ecs` module,
+but the outputs for `account` and `vpc` will be fetched serially as terragrunt needs to recursively walk through the
+tree to retrieve the outputs at each level.
+
+This recursive parsing happens due to the necessity to parse the entire `terragrunt.hcl` configuration (including
+`dependency` blocks) in full before being able to call `terraform output`.
+
+However, terragrunt includes an optimization to only fetch the lowest level outputs (`securitygroup` and `ecr` in this
+example) provided that the following conditions are met in the immediate dependencies:
+
+- The remote state is managed using `remote_state` blocks.
+- The dependency optimization feature flag is enabled (`disable_dependency_optimization = false`, which is the default).
+- The `remote_state` block itself does not depend on any `dependency` outputs (`locals` and `include` are ok).
+- You are not relying on `before_hook`, `after_hook`, or `extra_arguments` to the `terraform init` call. NOTE:
+  terragrunt will not automatically detect this and you will need to explicitly opt out of the dependency optimization
+  flag.
+
+If these conditions are met, terragrunt will only parse out the `remote_state` blocks and use that to pull down the
+state for the target module without parsing the `dependency` blocks, avoiding the recursive dependency retrieval.
 
 
 ### dependencies

@@ -80,14 +80,47 @@ type terragruntLocal struct {
 
 // Configuration for Terraform remote state as parsed from a terragrunt.hcl config file
 type remoteStateConfigFile struct {
-	Backend     string                     `hcl:"backend,attr"`
-	DisableInit *bool                      `hcl:"disable_init,attr"`
-	Generate    *remoteStateConfigGenerate `hcl:"generate,attr"`
-	Config      cty.Value                  `hcl:"config,attr"`
+	Backend                       string                     `hcl:"backend,attr"`
+	DisableInit                   *bool                      `hcl:"disable_init,attr"`
+	DisableDependencyOptimization *bool                      `hcl:"disable_dependency_optimization,attr"`
+	Generate                      *remoteStateConfigGenerate `hcl:"generate,attr"`
+	Config                        cty.Value                  `hcl:"config,attr"`
 }
 
 func (remoteState *remoteStateConfigFile) String() string {
 	return fmt.Sprintf("remoteStateConfigFile{Backend = %v, Config = %v}", remoteState.Backend, remoteState.Config)
+}
+
+// Convert the parsed config file remote state struct to the internal representation struct of remote state
+// configurations.
+func (remoteState *remoteStateConfigFile) toConfig() (*remote.RemoteState, error) {
+	remoteStateConfig, err := parseCtyValueToMap(remoteState.Config)
+	if err != nil {
+		return nil, err
+	}
+
+	config := &remote.RemoteState{}
+	config.Backend = remoteState.Backend
+	if remoteState.Generate != nil {
+		config.Generate = &remote.RemoteStateGenerate{
+			Path:     remoteState.Generate.Path,
+			IfExists: remoteState.Generate.IfExists,
+		}
+	}
+	config.Config = remoteStateConfig
+
+	if remoteState.DisableInit != nil {
+		config.DisableInit = *remoteState.DisableInit
+	}
+	if remoteState.DisableDependencyOptimization != nil {
+		config.DisableDependencyOptimization = *remoteState.DisableDependencyOptimization
+	}
+
+	config.FillDefaults()
+	if err := config.Validate(); err != nil {
+		return nil, err
+	}
+	return config, err
 }
 
 type remoteStateConfigGenerate struct {
@@ -679,30 +712,10 @@ func convertToTerragruntConfig(
 	}
 
 	if terragruntConfigFromFile.RemoteState != nil {
-		remoteStateConfig, err := parseCtyValueToMap(terragruntConfigFromFile.RemoteState.Config)
+		remoteState, err := terragruntConfigFromFile.RemoteState.toConfig()
 		if err != nil {
 			return nil, err
 		}
-
-		remoteState := &remote.RemoteState{}
-		remoteState.Backend = terragruntConfigFromFile.RemoteState.Backend
-		if terragruntConfigFromFile.RemoteState.Generate != nil {
-			remoteState.Generate = &remote.RemoteStateGenerate{
-				Path:     terragruntConfigFromFile.RemoteState.Generate.Path,
-				IfExists: terragruntConfigFromFile.RemoteState.Generate.IfExists,
-			}
-		}
-		remoteState.Config = remoteStateConfig
-
-		if terragruntConfigFromFile.RemoteState.DisableInit != nil {
-			remoteState.DisableInit = *terragruntConfigFromFile.RemoteState.DisableInit
-		}
-
-		remoteState.FillDefaults()
-		if err := remoteState.Validate(); err != nil {
-			return nil, err
-		}
-
 		terragruntConfig.RemoteState = remoteState
 	}
 
